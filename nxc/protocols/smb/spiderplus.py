@@ -162,10 +162,18 @@ class SMBSpiderPlus:
 
     @staticmethod
     def has_literal_value(value):
-        value = value.strip().strip("\"'")
-        if not value or value.lower() in {"null", "none", "true", "false", "redacted", "changeme", "change_me", "your_password", "replace_me"}:
+        value = value.strip()
+        quoted = len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]
+        if not quoted and value.lower() in {"null", "none", "true", "false"}:
             return False
-        if value.startswith(("$", "%", "{{", "<", "process.env", "os.environ", "os.getenv", "getenv(", "env(")):
+        value = value.strip("\"'")
+        if not value or value.lower() in {"redacted", "your_password", "replace_me"}:
+            return False
+        if re.fullmatch(r"\$\{[^}]+\}|\$\([^)]+\)|%[^%]+%|\{\{[^}]+\}\}|<[^>]+>", value):
+            return False
+        if not quoted and re.fullmatch(r"\$[A-Za-z_]\w*", value):
+            return False
+        if value.startswith(("process.env.", "process.env[", "os.environ[", "os.environ.get(", "os.getenv(", "getenv(", "env(")):
             return False
         return not re.fullmatch(r"\*+|[xX]{3,}", value)
 
@@ -179,8 +187,6 @@ class SMBSpiderPlus:
             text = data.decode("utf-8-sig", errors="replace")
         if any(ord(char) < 32 and char not in "\r\n\t" for char in text):
             return None
-        # Commented examples and placeholders are not evidence of a stored credential.
-        text = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(("#", "//", ";", "<!--")))
         matches = []
         if SMBSpiderPlus.private_key_pattern.search(text):
             matches.append("private key content")

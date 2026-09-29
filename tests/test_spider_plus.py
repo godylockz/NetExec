@@ -87,11 +87,21 @@ class TestSpiderPlus(unittest.TestCase):
             b"Documentation about password policies and JDBC/ODBC.", b'password=""', b'password="${DB_PASSWORD}"',
             b'password="%DB_PASSWORD%"', b'password="{{ DB_PASSWORD }}"', b'password="redacted"',
             b"password=process.env.PASSWORD", b'password=os.getenv("PASSWORD")', b'password="***"',
-            b'# password="example-test-value"', b'// password="example-test-value"', b"<Password></Password>",
+            b"password=$DB_PASSWORD", b"<Password></Password>",
             b"postgresql://test:${DB_PASSWORD}@db/example", b"-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----",
         ):
             with self.subTest(data=data):
                 self.assertEqual(SMBSpiderPlus.sensitive_content_matches(data), [])
+
+    def test_real_values_are_not_mistaken_for_placeholders(self):
+        for data in (b'password="$yntheticTest123"', b'password="%ExampleTest123"', b'password="changeme"', b'password="change_me"', b'password="true"', b'password="null"'):
+            with self.subTest(data=data):
+                self.assertIn("credential assignment", SMBSpiderPlus.sensitive_content_matches(data))
+
+    def test_credentials_in_comments_are_still_reported(self):
+        for data in (b'# password="ExampleTest123"', b'// password="ExampleTest123"', b'; password="ExampleTest123"', b'<!-- password="ExampleTest123" -->'):
+            with self.subTest(data=data):
+                self.assertIn("credential assignment", SMBSpiderPlus.sensitive_content_matches(data))
 
     def test_utf16_and_binary_content(self):
         self.assertTrue(SMBSpiderPlus.sensitive_content_matches('password="example-test-value"'.encode("utf-16")))

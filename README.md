@@ -74,7 +74,7 @@ Each file's existing JSON metadata gains a `sensitive` entry with `name_matches`
 `content_status`, and `bytes_checked`. A `checked` file with no content matches still retains any
 filename hint. Excluded extensions, oversized files, binary files, changed sizes, and read failures
 are recorded as unchecked. Text checks support UTF-8 and UTF-16 with a byte order mark and look for
-credential values, connection URIs, and private key material. They do not parse Office documents,
+credential values (including comments and default passwords), connection URIs, and private key material. They do not parse Office documents,
 archives, encrypted stores, or arbitrary encodings; no match does not establish that a file is safe.
 
 The curated indicators were informed by [SauronEye](https://github.com/vivami/SauronEye),
