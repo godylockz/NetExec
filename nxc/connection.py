@@ -20,7 +20,7 @@ from nxc.context import Context
 from nxc.paths import NXC_PATH
 from nxc.protocols.ldap.laps import laps_search
 from nxc.helpers.pfx import pfx_auth
-from nxc.helpers.misc import normalize_nthash
+from nxc.helpers.misc import normalize_ntlm_hash
 
 from impacket.dcerpc.v5 import transport
 from impacket.krb5.ccache import CCache
@@ -436,7 +436,7 @@ class connection:
                 secret.append(password)
                 cred_type.append("plaintext")
 
-        # Parse NTLM-hashes (accepts NT, LM:NT and :NT; the LM half is stripped and the NT hash must be 32 chars)
+        # Parse NTLM hashes.
         if hasattr(self.args, "hash") and self.args.hash:
             for ntlm_hash in self.args.hash:
                 if isfile(ntlm_hash):
@@ -444,18 +444,18 @@ class connection:
                         for i, line in enumerate(ntlm_hash_file):
                             if not line.strip():
                                 continue
-                            nthash = normalize_nthash(line)
-                            if nthash is None:
+                            normalized_hash = normalize_ntlm_hash(line)
+                            if normalized_hash is None:
                                 self.logger.fail(f"Invalid NTLM hash on line {(i + 1)}: {line.strip()}")
                                 continue
-                            secret.append(nthash)
+                            secret.append(normalized_hash)
                             cred_type.append("hash")
                 else:
-                    nthash = normalize_nthash(ntlm_hash)
-                    if nthash is None:
-                        self.logger.fail(f"Invalid NTLM hash '{ntlm_hash}', authentication not sent (expected a 32-char NT hash, optionally as LM:NT or :NT)")
+                    normalized_hash = normalize_ntlm_hash(ntlm_hash)
+                    if normalized_hash is None:
+                        self.logger.fail(f"Invalid NTLM hash '{ntlm_hash}', authentication not sent (expected NT, LM:NT, or :NT with 32 hex characters per hash)")
                         exit(1)
-                    secret.append(nthash)
+                    secret.append(normalized_hash)
                     cred_type.append("hash")
             self.logger.debug(secret)
 

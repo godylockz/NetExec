@@ -27,21 +27,17 @@ def gen_random_string(length=10):
 
 
 def validate_ntlm(data):
-    allowed = re.compile(r"^[0-9a-f]{32}", re.IGNORECASE)
-    return bool(allowed.match(data))
+    return re.fullmatch(r"[0-9a-f]{32}", data, re.IGNORECASE) is not None
 
 
-def normalize_nthash(nthash):
-    """Normalize a -H hash argument to its 32-char NT portion.
-
-    Accepts the NT hash on its own as well as the ``LM:NT`` and ``:NT`` forms;
-    anything up to and including the last colon (the LM half) is stripped.
-    Returns the NT hash if it is exactly 32 characters, otherwise None.
-    """
-    nthash = nthash.strip()
-    if ":" in nthash:
-        nthash = nthash.rsplit(":", 1)[-1]
-    return nthash if len(nthash) == 32 else None
+def normalize_ntlm_hash(ntlm_hash):
+    """Accept NT, LM:NT, or :NT; preserve a supplied LM hash and reject invalid hex."""
+    parts = ntlm_hash.strip().split(":")
+    if len(parts) == 1 and validate_ntlm(parts[0]):
+        return parts[0]
+    if len(parts) == 2 and validate_ntlm(parts[1]) and (not parts[0] or validate_ntlm(parts[0])):
+        return ":".join(parts) if parts[0] else parts[1]
+    return None
 
 
 def called_from_cmd_args():

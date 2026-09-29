@@ -3,7 +3,7 @@ from nxc.helpers.args import DisplayDefaultsNotNone
 
 def proto_args(parser, parents):
     mssql_parser = parser.add_parser("mssql", help="own stuff using MSSQL", parents=parents, formatter_class=DisplayDefaultsNotNone)
-    mssql_parser.add_argument("-H", "--hash", metavar="HASH", dest="hash", nargs="+", default=[], help="NTLM hash(es) or file(s) containing NTLM hashes")
+    mssql_parser.add_argument("-H", "--hash", metavar="HASH", dest="hash", nargs="+", default=[], help="NT, LM:NT, or :NT hash(es), or file(s) containing them")
     mssql_parser.add_argument("--port", default=1433, type=int, metavar="PORT", help="MSSQL port")
     mssql_parser.add_argument("--mssql-timeout", help="SQL server connection timeout", type=int, default=5)
     mssql_parser.add_argument("-q", "--query", metavar="QUERY", type=str, help="execute the specified query against the mssql db")

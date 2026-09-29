@@ -4,7 +4,7 @@ from nxc.helpers.args import DisplayDefaultsNotNone, DefaultTrackingAction, get_
 
 def proto_args(parser, parents):
     smb_parser = parser.add_parser("smb", help="own stuff using SMB", parents=parents, formatter_class=DisplayDefaultsNotNone)
-    smb_parser.add_argument("-H", "--hash", metavar="HASH", dest="hash", nargs="+", default=[], help="NTLM hash(es) or file(s) containing NTLM hashes")
+    smb_parser.add_argument("-H", "--hash", metavar="HASH", dest="hash", nargs="+", default=[], help="NT, LM:NT, or :NT hash(es), or file(s) containing them")
 
     delegate_arg = smb_parser.add_argument("--delegate", action="store", help="Impersonate user with S4U2Self + S4U2Proxy")
     smb_parser.add_argument("--spn", action="store", help="SPN to use for the Service Ticket. With --delegate it's the SPN used for S4U2Proxy (defaults to cifs/<target>).", type=str)
