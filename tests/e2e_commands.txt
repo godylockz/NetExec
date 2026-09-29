@@ -1,5 +1,21 @@
 ##### Check Generic Help Options
 netexec -h
+##### DCSync module discovery (no target)
+netexec --help
+netexec smb -M dcsync --options
+netexec ldap -M dcsync --options
+# Module initialization with an empty target file (no network operations)
+netexec smb tests/data/empty_targets.txt -M dcsync
+netexec ldap tests/data/empty_targets.txt -M dcsync
+netexec smb tests/data/empty_targets.txt -M dcsync -o PROBE=True
+# Expected option validation failure (exit 1):
+# netexec ldap tests/data/empty_targets.txt -M dcsync -o PROBE=True
+# Expected missing-target parser failure (exit 2):
+# netexec smb -M dcsync -o PROBE=True
+# Authorized DC examples; not run without an explicitly authorized target:
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M dcsync
+# netexec ldap TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M dcsync
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M dcsync -o PROBE=True
 ##### SMB
 netexec smb TARGET_HOST --generate-hosts-file /tmp/hostsfile
 netexec smb TARGET_HOST --generate-krb5-file /tmp/krb5conf

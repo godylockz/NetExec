@@ -34,6 +34,23 @@ If you don't have a Github account, you can ask your questions on Discord!
 # Documentation, Tutorials, Examples
 See the project's [wiki](https://netexec.wiki/) (in development) for documentation and usage examples
 
+## DCSync access checks
+
+Run `netexec smb -M dcsync --options` or `netexec ldap -M dcsync --options` for usage.
+The module runs only when selected with `-M dcsync`. Its default checks report
+potential access from DC account/admin hints over SMB or default privileged group
+membership over LDAP. They do not evaluate effective domain ACLs, and a negative
+result does not rule out delegated replication rights. LDAP's default group
+checks exclude the read-only DC primary group. SMB's machine-name hint cannot
+distinguish a writable DC account from a read-only DC account.
+LDAP account matching is limited to the target domain; cross-domain access is not assessed.
+
+On SMB, `-M dcsync -o PROBE=True` makes one DRSGetNCChanges request for the
+authenticated account, including secret attributes. It reports whether that
+request succeeded and does not print or save the returned secrets. It generates
+replication traffic and may generate directory-service audit events. The probe
+requires an account from the target DC's domain and also runs for administrators.
+
 # Installation
 Please see the installation instructions on the [wiki](https://netexec.wiki/getting-started/installation) (in development)
 
