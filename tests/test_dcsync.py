@@ -2,9 +2,9 @@
 
 from types import SimpleNamespace
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest import TestCase, main
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+
+import pytest
 
 from impacket.dcerpc.v5 import drsuapi
 from impacket.ldap.ldapasn1 import SearchResultEntry
@@ -54,13 +54,10 @@ def replication_response(version=6, count=1, error=0, extended=1):
     return response
 
 
-class DCSyncTests(TestCase):
-    def setUp(self):
-        config_directory = TemporaryDirectory(prefix="netexec-dcsync-test-")
-        self.addCleanup(config_directory.cleanup)
-        config_patch = patch("nxc.context.CONFIG_PATH", str(Path(config_directory.name) / "nxc.conf"))
-        config_patch.start()
-        self.addCleanup(config_patch.stop)
+class TestDCSync:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("nxc.context.CONFIG_PATH", str(tmp_path / "nxc.conf"))
         self.context = Context(None, Mock(), SimpleNamespace(protocol="smb"))
         self.connection = SimpleNamespace(
             username="testuser", hostname="TESTDC", domain="example.test", targetDomain="example.test",
@@ -74,9 +71,9 @@ class DCSyncTests(TestCase):
         self.remote = Mock()
         self.remote.DRSCrackNames.return_value = crack_response()
         self.remote.DRSGetNCChangesGuid.return_value = replication_response()
-        remote_patch = patch("nxc.modules.dcsync.RemoteOperations", return_value=self.remote)
-        self.remote_factory = remote_patch.start()
-        self.addCleanup(remote_patch.stop)
+        self.remote_factory = Mock(return_value=self.remote)
+        monkeypatch.setattr("nxc.modules.dcsync.RemoteOperations", self.remote_factory)
+        return self
 
     def use_probe(self):
         self.module.options(self.context, {"PROBE": "True"})
@@ -102,14 +99,14 @@ class DCSyncTests(TestCase):
     def test_dc_machine_account_is_only_a_hint(self):
         self.connection.username = "testdc$"
         self.module.on_login(self.context, self.connection)
-        self.assertIn("not verified", self.context.log.highlight.call_args.args[0])
+        assert "not verified" in self.context.log.highlight.call_args.args[0]
         self.remote_factory.assert_not_called()
-        self.assertFalse(hasattr(self.connection, "dcsync_privs"))
+        assert not hasattr(self.connection, "dcsync_privs")
 
     def test_admin_is_only_a_hint(self):
         self.connection.admin_privs = True
         self.module.on_login(self.context, self.connection)
-        self.assertIn("not verified", self.context.log.highlight.call_args.args[0])
+        assert "not verified" in self.context.log.highlight.call_args.args[0]
         self.remote_factory.assert_not_called()
 
     def test_foreign_machine_account_is_not_a_local_dc_hint(self):
@@ -166,27 +163,27 @@ class DCSyncTests(TestCase):
     def test_ldap_nested_and_primary_membership_are_hints(self):
         self.use_ldap()
         self.module.on_login(self.context, self.connection)
-        self.assertIn("not verified", self.context.log.highlight.call_args.args[0])
+        assert "not verified" in self.context.log.highlight.call_args.args[0]
         query = self.connection.search.call_args.args[0]
-        self.assertIn("memberOf:1.2.840.113556.1.4.1941", query)
-        self.assertIn("(primaryGroupID=516)", query)
-        self.assertNotIn("(primaryGroupID=521)", query)
+        assert "memberOf:1.2.840.113556.1.4.1941" in query
+        assert "(primaryGroupID=516)" in query
+        assert "(primaryGroupID=521)" not in query
         self.remote_factory.assert_not_called()
 
     def test_ldap_primary_group_checked_without_group_results(self):
         self.use_ldap(groups=False)
         self.module.on_login(self.context, self.connection)
         self.context.log.highlight.assert_called_once()
-        self.assertIn("(primaryGroupID=516)", self.connection.search.call_args.args[0])
+        assert "(primaryGroupID=516)" in self.connection.search.call_args.args[0]
 
     def test_ldap_excludes_operator_groups(self):
         self.use_ldap(account=False)
         self.module.on_login(self.context, self.connection)
         queries = "".join(call.args[0] for call in self.connection.search.call_args_list)
-        self.assertNotIn("-549", queries)
-        self.assertNotIn("-551", queries)
-        self.assertNotIn("primaryGroupID=549", queries)
-        self.assertNotIn("primaryGroupID=551", queries)
+        assert "-549" not in queries
+        assert "-551" not in queries
+        assert "primaryGroupID=549" not in queries
+        assert "primaryGroupID=551" not in queries
         self.context.log.highlight.assert_not_called()
 
     def test_ldap_escapes_account_and_group_filter_values(self):
@@ -198,8 +195,8 @@ class DCSyncTests(TestCase):
         ]
         self.module.on_login(self.context, self.connection)
         query = self.connection.search.call_args.args[0]
-        self.assertIn(r"test\2a\29\28objectClass=\2a\29", query)
-        self.assertIn(r"CN=Test \28Group\29\2a", query)
+        assert r"test\2a\29\28objectClass=\2a\29" in query
+        assert r"CN=Test \28Group\29\2a" in query
 
     def test_ldap_missing_domain_sid_reports_lookup_failure(self):
         self.use_ldap()
@@ -242,9 +239,9 @@ class DCSyncTests(TestCase):
 
     def test_ldap_probe_option_is_rejected(self):
         self.context.protocol = "ldap"
-        with self.assertRaises(SystemExit) as raised:
+        with pytest.raises(SystemExit) as raised:
             self.use_probe()
-        self.assertEqual(raised.exception.code, 1)
+        assert raised.value.code == 1
 
     def test_probe_checks_one_own_account_and_closes_rpc(self):
         self.use_probe()
@@ -304,28 +301,26 @@ class DCSyncTests(TestCase):
         self.remote.DRSGetNCChangesGuid.side_effect = drsuapi.DCERPCSessionError(error_code=0x2105)
         self.module.on_login(self.context, self.connection)
         self.context.log.highlight.assert_not_called()
-        self.assertIn("denied", self.context.log.fail.call_args.args[0])
+        assert "denied" in self.context.log.fail.call_args.args[0]
         self.remote.finish.assert_called_once()
 
     def test_name_lookup_failure_does_not_replicate(self):
         self.use_probe()
         for count, status in ((0, 0), (1, 2), (2, 0)):
-            with self.subTest(count=count, status=status):
-                self.remote.reset_mock()
-                self.remote.DRSCrackNames.return_value = crack_response(count=count, status=status)
-                self.module.on_login(self.context, self.connection)
-                self.remote.DRSGetNCChangesGuid.assert_not_called()
-                self.remote.finish.assert_called_once()
+            self.remote.reset_mock()
+            self.remote.DRSCrackNames.return_value = crack_response(count=count, status=status)
+            self.module.on_login(self.context, self.connection)
+            self.remote.DRSGetNCChangesGuid.assert_not_called()
+            self.remote.finish.assert_called_once()
         self.context.log.highlight.assert_not_called()
 
     def test_error_empty_and_unsupported_responses_are_not_success(self):
         self.use_probe()
         for response in (replication_response(error=0x2105), replication_response(count=0), replication_response(count=2), replication_response(extended=2), replication_response(version=1)):
-            with self.subTest(response=response):
-                self.remote.DRSGetNCChangesGuid.return_value = response
-                self.module.on_login(self.context, self.connection)
+            self.remote.DRSGetNCChangesGuid.return_value = response
+            self.module.on_login(self.context, self.connection)
         self.context.log.highlight.assert_not_called()
-        self.assertEqual(self.remote.finish.call_count, 5)
+        assert self.remote.finish.call_count == 5
 
     def test_version_nine_response_is_supported(self):
         self.use_probe()
@@ -337,7 +332,7 @@ class DCSyncTests(TestCase):
         self.use_probe()
         self.remote.DRSCrackNames.side_effect = OSError("test transport failure")
         self.module.on_login(self.context, self.connection)
-        self.assertIn("not determined", self.context.log.fail.call_args.args[0])
+        assert "not determined" in self.context.log.fail.call_args.args[0]
         self.context.log.highlight.assert_not_called()
         self.remote.finish.assert_called_once()
 
@@ -349,29 +344,24 @@ class DCSyncTests(TestCase):
         self.remote.DRSGetNCChangesGuid.side_effect = drsuapi.DCERPCSessionError(error_code=0x2105)
         self.module.on_login(self.context, self.connection)
         self.context.log.highlight.assert_not_called()
-        self.assertFalse(hasattr(self.connection, "dcsync_privs"))
+        assert not hasattr(self.connection, "dcsync_privs")
 
     def test_cleanup_failure_is_logged(self):
         self.use_probe()
         self.remote.finish.side_effect = OSError("test close failure")
         self.module.on_login(self.context, self.connection)
-        self.assertIn("Could not close", self.context.log.fail.call_args.args[0])
+        assert "Could not close" in self.context.log.fail.call_args.args[0]
 
     def test_real_loader_initializes_both_protocols(self):
         for protocol in ("smb", "ldap"):
-            with self.subTest(protocol=protocol):
-                args = SimpleNamespace(protocol=protocol, module_options=[])
-                loader = ModuleLoader(args, None, self.context.log)
-                module = loader.init_module(str(Path(__file__).resolve().parents[1] / "nxc" / "modules" / "dcsync.py"))
-                self.assertIsNotNone(module)
-                self.assertFalse(module.probe)
+            args = SimpleNamespace(protocol=protocol, module_options=[])
+            loader = ModuleLoader(args, None, self.context.log)
+            module = loader.init_module(str(Path(__file__).resolve().parents[1] / "nxc" / "modules" / "dcsync.py"))
+            assert module is not None
+            assert not module.probe
 
     def test_real_loader_initializes_probe(self):
         args = SimpleNamespace(protocol="smb", module_options=["PROBE=True"])
         loader = ModuleLoader(args, None, self.context.log)
         module = loader.init_module(str(Path(__file__).resolve().parents[1] / "nxc" / "modules" / "dcsync.py"))
-        self.assertTrue(module.probe)
-
-
-if __name__ == "__main__":
-    main()
+        assert module.probe

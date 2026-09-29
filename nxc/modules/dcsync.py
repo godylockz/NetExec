@@ -18,10 +18,14 @@ class NXCModule:
         """
         Default checks report account/group hints, not effective replication permissions.
         LDAP checks nested membership and primary groups; SMB checks DC account/admin hints.
+        LDAP account matching is limited to the target domain and excludes the read-only DC primary group.
+        SMB machine-name hints cannot distinguish writable and read-only DC accounts.
+        No hint does not rule out delegated replication rights.
 
         PROBE    Confirm access with one DRSGetNCChanges request (SMB only, default: False).
                  Requests secret attributes for the authenticated account; does not print or save them.
                  Generates replication traffic and may generate directory-service audit events.
+                 Requires an account from the target DC's domain; also probes administrator accounts.
         """
         self.probe = module_options.get("PROBE", "false").lower() in ("true", "1", "yes")
         if self.probe and context.protocol != "smb":

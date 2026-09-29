@@ -124,8 +124,7 @@ ignore = [
 # Allow autofix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
 unfixable = []
-# These offline module regressions use unittest; module discovery is verified with the CLI.
-per-file-ignores = { "tests/test_dcsync.py" = ["PT009", "PT027"] }
+per-file-ignores = {}
 
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
