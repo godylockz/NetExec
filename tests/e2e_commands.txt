@@ -161,6 +161,10 @@ netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M slinky -
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M slinky -o NAME=test CLEANUP=True
 # spider_plus takes a while to run, so it is commented out during normal testing
 # netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o MAX_FILE_SIZE=100
+netexec smb -M spider_plus --options
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o SENSITIVE_CHECK_STATICONLY=False
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o DOWNLOAD_FLAG=True SENSITIVE_CHECK_MAX_FILE_SIZE=1048576
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o SENSITIVE_CHECK_ENABLE=False
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spooler
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M teams_localdb
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M test_connection -o HOST=localhost
