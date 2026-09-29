@@ -51,36 +51,6 @@ pipx install git+https://github.com/Pennyw0rth/NetExec
 # Development
 Development guidelines and recommendations in development
 
-## Sensitive files in SMB shares
-
-`spider_plus` flags potentially sensitive filenames by default, including credential configs,
-private key containers, password vaults, credential stores, and command histories.
-Filename hints do not prove that a file contains credentials or that the current user can read it.
-
-```sh
-netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD -M spider_plus
-netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD -M spider_plus -o SENSITIVE_CHECK_STATICONLY=False
-netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD -M spider_plus -o DOWNLOAD_FLAG=True
-netexec smb -M spider_plus --options
-```
-
-`SENSITIVE_CHECK_STATICONLY=True` avoids extra remote content reads. Successful downloads and
-unchanged cached downloads are checked automatically. Set it to `False` to read candidate text
-files without saving them. `SENSITIVE_CHECK_MAX_FILE_SIZE` limits content checks to whole files of
-at most 1048576 bytes by default; `MAX_FILE_SIZE` remains the separate download limit.
-`SENSITIVE_CHECK_ENABLE=False` disables both filename and content checks.
-
-Each file's existing JSON metadata gains a `sensitive` entry with `name_matches`, `content_matches`,
-`content_status`, and `bytes_checked`. A `checked` file with no content matches still retains any
-filename hint. Excluded extensions, oversized files, binary files, changed sizes, and read failures
-are recorded as unchecked. Text checks support UTF-8 and UTF-16 with a byte order mark and look for
-credential values (including comments and default passwords), connection URIs, and private key material. They do not parse Office documents,
-archives, encrypted stores, or arbitrary encodings; no match does not establish that a file is safe.
-
-The curated indicators were informed by [SauronEye](https://github.com/vivami/SauronEye),
-[needle](https://github.com/blurbdust/needle), [LaZagne](https://github.com/AlessandroZ/LaZagne),
-[SnafflePy](https://github.com/S3cur3Th1sSh1t/SnafflePy), and [Snaffler](https://github.com/SnaffCon/Snaffler).
-
 # Acknowledgments
 All the hard work and development over the years from everyone in the CrackMapExec project
 

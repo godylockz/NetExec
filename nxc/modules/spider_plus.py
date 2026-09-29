@@ -24,6 +24,10 @@ class NXCModule:
         Filename hints are enabled by default. Successful/cached downloads are also checked for sensitive content.
         Set SENSITIVE_CHECK_STATICONLY=False to read eligible remote text files without saving them.
         Content matches are indicators for review, not proof of valid credentials. Binary/Office files are not parsed.
+        Filename hints do not establish readability. Text checks support UTF-8 and UTF-16 with a byte order mark.
+        JSON metadata records name_matches, content_matches, content_status, and bytes_checked under sensitive.
+        Content checks require a complete file within the size limit; exclusions and read failures remain unchecked.
+        No content match does not establish that a file is safe or remove a filename hint.
 
         DOWNLOAD_FLAG     Download all share folders/files (Default: False)
         STATS_FLAG        Print file/download statistics (Default: True)
@@ -42,9 +46,7 @@ class NXCModule:
                 exit(1)
             setattr(self, key.lower(), value == "true")
         self.exclude_exts = get_list_from_option(module_options.get("EXCLUDE_EXTS", "ico,lnk"))
-        self.exclude_exts = [d.lower() for d in self.exclude_exts]  # force case-insensitive
         self.exclude_filter = get_list_from_option(module_options.get("EXCLUDE_FILTER", "print$,ipc$"))
-        self.exclude_filter = [d.lower() for d in self.exclude_filter]  # force case-insensitive
         self.max_file_size = int(module_options.get("MAX_FILE_SIZE", 50 * 1024))
         try:
             self.sensitive_check_max_file_size = int(module_options.get("SENSITIVE_CHECK_MAX_FILE_SIZE", 1024 * 1024))
