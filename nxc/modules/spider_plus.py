@@ -21,8 +21,8 @@ class NXCModule:
     def options(self, context, module_options):
         """
         List files recursively and save JSON share-file metadata to OUTPUT_FOLDER.
-        Filename hints are enabled by default. Successful/cached downloads are also checked for sensitive content.
-        Set SENSITIVE_CHECK_STATICONLY=False to read eligible remote text files without saving them.
+        Filename checks are enabled by default. When SENSITIVE_CHECK=True, successful/cached downloads are also inspected within the content size limit.
+        Set SENSITIVE_READ_CONTENT=True to read eligible remote text files without saving them.
         Content matches are indicators for review, not proof of valid credentials. Binary/Office files are not parsed.
         Filename hints do not establish readability. Text checks support UTF-8 and UTF-16 with a byte order mark.
         JSON metadata records name_matches, content_matches, content_status, and bytes_checked under sensitive.
@@ -35,11 +35,11 @@ class NXCModule:
         EXCLUDE_FILTER    Case-insensitive filter to exclude folders/files (Default: print$,ipc$)
         MAX_FILE_SIZE     Max file size to download (Default: 51200)
         OUTPUT_FOLDER     Path of the local folder to save files (Default: NXC_PATH/modules/nxc_spider_plus)
-        SENSITIVE_CHECK_ENABLE        Flag potentially sensitive files (Default: True)
-        SENSITIVE_CHECK_STATICONLY    Avoid extra remote content reads; downloads are still checked (Default: True)
-        SENSITIVE_CHECK_MAX_FILE_SIZE Max file size in bytes for content checks (Default: 1048576)
+        SENSITIVE_CHECK        Flag potentially sensitive files (Default: True)
+        SENSITIVE_READ_CONTENT  Also read eligible remote files for content checks (Default: False)
+        SENSITIVE_MAX_FILE_SIZE Max file size in bytes for content checks (Default: 1048576)
         """
-        for key, default in (("DOWNLOAD_FLAG", "False"), ("STATS_FLAG", "True"), ("SENSITIVE_CHECK_ENABLE", "True"), ("SENSITIVE_CHECK_STATICONLY", "True")):
+        for key, default in (("DOWNLOAD_FLAG", "False"), ("STATS_FLAG", "True"), ("SENSITIVE_CHECK", "True"), ("SENSITIVE_READ_CONTENT", "False")):
             value = module_options.get(key, default).lower()
             if value not in ("true", "false"):
                 context.log.fail(f"{key} must be True or False")
@@ -49,11 +49,11 @@ class NXCModule:
         self.exclude_filter = get_list_from_option(module_options.get("EXCLUDE_FILTER", "print$,ipc$"))
         self.max_file_size = int(module_options.get("MAX_FILE_SIZE", 50 * 1024))
         try:
-            self.sensitive_check_max_file_size = int(module_options.get("SENSITIVE_CHECK_MAX_FILE_SIZE", 1024 * 1024))
-            if self.sensitive_check_max_file_size <= 0:
+            self.sensitive_max_file_size = int(module_options.get("SENSITIVE_MAX_FILE_SIZE", 1024 * 1024))
+            if self.sensitive_max_file_size <= 0:
                 raise ValueError
         except ValueError:
-            context.log.fail("SENSITIVE_CHECK_MAX_FILE_SIZE must be a positive number of bytes")
+            context.log.fail("SENSITIVE_MAX_FILE_SIZE must be a positive number of bytes")
             exit(1)
         self.output_folder = module_options.get("OUTPUT_FOLDER", abspath(join(NXC_PATH, "modules/nxc_spider_plus")))
 
@@ -65,9 +65,9 @@ class NXCModule:
         context.log.display(f"  EXCLUDE_EXTS: {self.exclude_exts}")
         context.log.display(f" MAX_FILE_SIZE: {human_size(self.max_file_size)}")
         context.log.display(f" OUTPUT_FOLDER: {self.output_folder}")
-        context.log.display(f"       SENSITIVE_CHECK_ENABLE: {self.sensitive_check_enable}")
-        context.log.display(f"   SENSITIVE_CHECK_STATICONLY: {self.sensitive_check_staticonly}")
-        context.log.display(f"SENSITIVE_CHECK_MAX_FILE_SIZE: {human_size(self.sensitive_check_max_file_size)}")
+        context.log.display(f"        SENSITIVE_CHECK: {self.sensitive_check}")
+        context.log.display(f" SENSITIVE_READ_CONTENT: {self.sensitive_read_content}")
+        context.log.display(f"SENSITIVE_MAX_FILE_SIZE: {human_size(self.sensitive_max_file_size)}")
 
         spider = SMBSpiderPlus(
             connection,
@@ -78,9 +78,9 @@ class NXCModule:
             self.exclude_filter,
             self.max_file_size,
             self.output_folder,
-            sensitive_check_enable=self.sensitive_check_enable,
-            sensitive_check_staticonly=self.sensitive_check_staticonly,
-            sensitive_check_max_file_size=self.sensitive_check_max_file_size,
+            sensitive_check=self.sensitive_check,
+            sensitive_read_content=self.sensitive_read_content,
+            sensitive_max_file_size=self.sensitive_max_file_size,
         )
 
         spider.spider_shares()

@@ -164,13 +164,13 @@ netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M slinky -
 netexec smb -M spider_plus --options
 # Module initialization with an empty target file (no network operations)
 netexec smb tests/data/empty_targets.txt -M spider_plus
-netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_CHECK_ENABLE=False
-netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_CHECK_STATICONLY=False DOWNLOAD_FLAG=True
+netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_CHECK=False
+netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_READ_CONTENT=True DOWNLOAD_FLAG=True
 # Expected option validation failure (exit 1):
-# netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_CHECK_MAX_FILE_SIZE=0
-# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o SENSITIVE_CHECK_STATICONLY=False
-# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o DOWNLOAD_FLAG=True SENSITIVE_CHECK_MAX_FILE_SIZE=1048576
-# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o SENSITIVE_CHECK_ENABLE=False
+# netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_MAX_FILE_SIZE=0
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o SENSITIVE_READ_CONTENT=True
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o DOWNLOAD_FLAG=True SENSITIVE_MAX_FILE_SIZE=1048576
+# netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o SENSITIVE_CHECK=False
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spooler
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M teams_localdb
 netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M test_connection -o HOST=localhost

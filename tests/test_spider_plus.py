@@ -128,7 +128,7 @@ class TestSpiderPlus:
 
     @patch("nxc.protocols.smb.spiderplus.RemoteFile")
     def test_disabled_preserves_metadata_without_checks(self, remote_file):
-        spider = self.make_spider(sensitive_check_enable=False, sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_check=False, sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(100))
         remote_file.assert_not_called()
         assert "sensitive" not in spider.results["Documents"]["web.config"]
@@ -138,7 +138,7 @@ class TestSpiderPlus:
         data = b'<add connectionString="Password=example-test-value;" />'
         remote = RemoteFileFixture(data)
         remote_file.return_value = remote
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(len(data)))
         remote_file.assert_called_once_with(self.smb.conn, "web.config", "Documents", access=FILE_READ_DATA)
         assert remote.closed
@@ -151,7 +151,7 @@ class TestSpiderPlus:
     def test_benign_config_retains_only_filename_hint(self, remote_file):
         data = b"<configuration><appSettings /></configuration>"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(len(data)))
         assert self.finding(spider)["name_matches"]
         assert self.finding(spider)["content_matches"] == []
@@ -161,7 +161,7 @@ class TestSpiderPlus:
     def test_content_mode_finds_unflagged_text_filename(self, remote_file):
         data = b"password=example-test-value"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "notes.txt", self.file_info(len(data)))
         assert not self.finding(spider, "notes.txt")["name_matches"]
         assert self.finding(spider, "notes.txt")["content_matches"]
@@ -199,7 +199,7 @@ class TestSpiderPlus:
 
     @patch("nxc.protocols.smb.spiderplus.RemoteFile")
     def test_size_limit_prevents_remote_reads(self, remote_file):
-        spider = self.make_spider(sensitive_check_staticonly=False, sensitive_check_max_file_size=16)
+        spider = self.make_spider(sensitive_read_content=True, sensitive_max_file_size=16)
         spider.parse_file("Documents", "web.config", self.file_info(17))
         remote_file.assert_not_called()
         assert self.finding(spider)["content_status"] == "skipped_size"
@@ -208,7 +208,7 @@ class TestSpiderPlus:
     def test_content_limit_also_applies_to_downloads(self, remote_file):
         data = b"password=example-test-value"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_max_file_size=16)
+        spider = self.make_spider(sensitive_max_file_size=16)
         spider.download_flag = True
         spider.parse_file("Documents", "web.config", self.file_info(len(data)))
         assert self.finding(spider)["content_status"] == "skipped_size"
@@ -218,7 +218,7 @@ class TestSpiderPlus:
     def test_server_cannot_exceed_content_read_limit(self, remote_file):
         remote = RemoteFileFixture(b"x" * 100)
         remote_file.return_value = remote
-        spider = self.make_spider(sensitive_check_staticonly=False, sensitive_check_max_file_size=16)
+        spider = self.make_spider(sensitive_read_content=True, sensitive_max_file_size=16)
         spider.parse_file("Documents", "web.config", self.file_info(10))
         assert self.finding(spider)["content_status"] == "skipped_size"
         assert sum(remote.requests) == 17
@@ -226,7 +226,7 @@ class TestSpiderPlus:
 
     @patch("nxc.protocols.smb.spiderplus.RemoteFile")
     def test_binary_store_is_flagged_without_remote_content_read(self, remote_file):
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "vault.kdbx", self.file_info(10))
         remote_file.assert_not_called()
         assert self.finding(spider, "vault.kdbx")["name_matches"]
@@ -234,7 +234,7 @@ class TestSpiderPlus:
 
     @patch("nxc.protocols.smb.spiderplus.RemoteFile")
     def test_documents_and_archives_are_not_read_as_text(self, remote_file):
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         for path in ("credentials.xlsx", "passwords.zip"):
             spider.parse_file("Documents", path, self.file_info(10))
             assert self.finding(spider, path)["name_matches"]
@@ -245,7 +245,7 @@ class TestSpiderPlus:
     def test_disabled_checks_do_not_inspect_downloads(self, remote_file):
         data = b"password=example-test-value"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_enable=False)
+        spider = self.make_spider(sensitive_check=False)
         spider.download_flag = True
         with patch.object(spider, "check_sensitive_content") as check_content:
             spider.parse_file("Documents", "web.config", self.file_info(len(data)))
@@ -255,7 +255,7 @@ class TestSpiderPlus:
 
     @patch("nxc.protocols.smb.spiderplus.RemoteFile")
     def test_excluded_extension_prevents_content_read(self, remote_file):
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.exclude_exts = [".config"]
         spider.parse_file("Documents", "web.config", self.file_info(10))
         remote_file.assert_not_called()
@@ -265,7 +265,7 @@ class TestSpiderPlus:
     def test_read_failures_are_not_reported_as_checked(self, remote_file):
         remote = RemoteFileFixture(b"", read_error=True)
         remote_file.return_value = remote
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(10))
         assert self.finding(spider)["content_status"] == "read_error"
         assert self.finding(spider)["content_matches"] == []
@@ -274,7 +274,7 @@ class TestSpiderPlus:
 
     @patch("nxc.protocols.smb.spiderplus.RemoteFile", side_effect=OSError("Test open failure"))
     def test_open_failures_are_recorded(self, remote_file):
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(10))
         assert self.finding(spider)["content_status"] == "read_error"
 
@@ -282,7 +282,7 @@ class TestSpiderPlus:
     def test_truncated_reads_do_not_confirm_content(self, remote_file):
         data = b"password=example-test-value"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(len(data) + 1))
         assert self.finding(spider)["content_status"] == "size_changed"
         assert self.finding(spider)["content_matches"] == []
@@ -291,7 +291,7 @@ class TestSpiderPlus:
     def test_cross_chunk_content_matches(self, remote_file):
         data = b" " * 4092 + b"password=example-test-value"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.parse_file("Documents", "web.config", self.file_info(len(data)))
         assert self.finding(spider)["content_matches"]
 
@@ -334,7 +334,7 @@ class TestSpiderPlus:
     def test_download_filter_does_not_limit_opt_in_content_mode(self, remote_file):
         data = b"password=example-test-value"
         remote_file.return_value = RemoteFileFixture(data)
-        spider = self.make_spider(sensitive_check_staticonly=False)
+        spider = self.make_spider(sensitive_read_content=True)
         spider.download_flag = True
         spider.max_file_size = 1
         spider.parse_file("Documents", "web.config", self.file_info(len(data)))
@@ -364,17 +364,17 @@ class TestSpiderPlus:
         module.options(context, {"OUTPUT_FOLDER": self.output_folder})
         assert not module.download_flag
         assert module.stats_flag
-        assert module.sensitive_check_enable
-        assert module.sensitive_check_staticonly
-        assert module.sensitive_check_max_file_size == 1024 * 1024
-        module.options(context, {"OUTPUT_FOLDER": self.output_folder, "DOWNLOAD_FLAG": "False", "STATS_FLAG": "False", "SENSITIVE_CHECK_ENABLE": "false", "SENSITIVE_CHECK_STATICONLY": "False"})
+        assert module.sensitive_check
+        assert not module.sensitive_read_content
+        assert module.sensitive_max_file_size == 1024 * 1024
+        module.options(context, {"OUTPUT_FOLDER": self.output_folder, "DOWNLOAD_FLAG": "False", "STATS_FLAG": "False", "SENSITIVE_CHECK": "false", "SENSITIVE_READ_CONTENT": "False"})
         assert not module.download_flag
         assert not module.stats_flag
-        assert not module.sensitive_check_enable
-        assert not module.sensitive_check_staticonly
+        assert not module.sensitive_check
+        assert not module.sensitive_read_content
 
     def test_invalid_sensitive_options_fail_with_explanation(self):
-        for options in ({"SENSITIVE_CHECK_ENABLE": "typo"}, {"SENSITIVE_CHECK_STATICONLY": "typo"}, {"SENSITIVE_CHECK_MAX_FILE_SIZE": "0"}, {"SENSITIVE_CHECK_MAX_FILE_SIZE": "-1"}, {"SENSITIVE_CHECK_MAX_FILE_SIZE": "typo"}):
+        for options in ({"SENSITIVE_CHECK": "typo"}, {"SENSITIVE_READ_CONTENT": "typo"}, {"SENSITIVE_MAX_FILE_SIZE": "0"}, {"SENSITIVE_MAX_FILE_SIZE": "-1"}, {"SENSITIVE_MAX_FILE_SIZE": "typo"}):
             with pytest.raises(SystemExit):
                 NXCModule().options(SimpleNamespace(log=self.logger), options)
         self.logger.fail.assert_called()
@@ -383,7 +383,7 @@ class TestSpiderPlus:
     def test_module_passes_sensitive_options_to_spider(self, spider_class):
         module = NXCModule()
         context = SimpleNamespace(log=self.logger)
-        module.options(context, {"OUTPUT_FOLDER": self.output_folder, "SENSITIVE_CHECK_STATICONLY": "False", "SENSITIVE_CHECK_MAX_FILE_SIZE": "2048"})
+        module.options(context, {"OUTPUT_FOLDER": self.output_folder, "SENSITIVE_READ_CONTENT": "True", "SENSITIVE_MAX_FILE_SIZE": "2048"})
         module.on_login(context, self.smb)
-        assert spider_class.call_args.kwargs == {"sensitive_check_enable": True, "sensitive_check_staticonly": False, "sensitive_check_max_file_size": 2048}
+        assert spider_class.call_args.kwargs == {"sensitive_check": True, "sensitive_read_content": True, "sensitive_max_file_size": 2048}
         spider_class.return_value.spider_shares.assert_called_once()

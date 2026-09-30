@@ -105,9 +105,9 @@ class SMBSpiderPlus:
         exclude_filter,
         max_file_size,
         output_folder,
-        sensitive_check_enable=True,
-        sensitive_check_staticonly=True,
-        sensitive_check_max_file_size=1024 * 1024,
+        sensitive_check=True,
+        sensitive_read_content=False,
+        sensitive_max_file_size=1024 * 1024,
     ):
         self.smb = smb
         self.host = self.smb.conn.getRemoteHost()
@@ -139,9 +139,9 @@ class SMBSpiderPlus:
         self.exclude_exts = exclude_exts
         self.max_file_size = max_file_size
         self.output_folder = output_folder
-        self.sensitive_check_enable = sensitive_check_enable
-        self.sensitive_check_staticonly = sensitive_check_staticonly
-        self.sensitive_check_max_file_size = sensitive_check_max_file_size
+        self.sensitive_check = sensitive_check
+        self.sensitive_read_content = sensitive_read_content
+        self.sensitive_max_file_size = sensitive_max_file_size
 
         # Make sure the output_folder exists
         make_dirs(self.output_folder)
@@ -207,7 +207,7 @@ class SMBSpiderPlus:
     def check_sensitive_content(self, share_name, file_path, file_size, download_path=None):
         finding = self.results[share_name][file_path]["sensitive"]
         finding["content_source"] = "download" if download_path else "remote"
-        if file_size > self.sensitive_check_max_file_size:
+        if file_size > self.sensitive_max_file_size:
             finding["content_status"] = "skipped_size"
             return
         extension = splitext(file_path)[1].lower()
@@ -218,18 +218,18 @@ class SMBSpiderPlus:
         try:
             if download_path:
                 with open(download_path, "rb") as fd:
-                    data = fd.read(self.sensitive_check_max_file_size + 1)
+                    data = fd.read(self.sensitive_max_file_size + 1)
             else:
                 remote_file = RemoteFile(self.smb.conn, file_path, share_name, access=FILE_READ_DATA)
                 remote_file.open_file()
                 data = bytearray()
-                while len(data) <= self.sensitive_check_max_file_size:
-                    chunk = self.read_chunk(remote_file, min(CHUNK_SIZE, self.sensitive_check_max_file_size + 1 - len(data)))
+                while len(data) <= self.sensitive_max_file_size:
+                    chunk = self.read_chunk(remote_file, min(CHUNK_SIZE, self.sensitive_max_file_size + 1 - len(data)))
                     if not chunk:
                         break
                     data.extend(chunk)
             finding["bytes_checked"] = len(data)
-            if len(data) > self.sensitive_check_max_file_size:
+            if len(data) > self.sensitive_max_file_size:
                 finding["content_status"] = "skipped_size"
                 return
             if len(data) != file_size:
@@ -426,7 +426,7 @@ class SMBSpiderPlus:
         }
         self.stats["file_sizes"].append(file_size)
 
-        if self.sensitive_check_enable:
+        if self.sensitive_check:
             name_matches = self.sensitive_name_matches(file_path)
             self.results[share_name][file_path]["sensitive"] = {
                 "name_matches": name_matches,
@@ -438,7 +438,7 @@ class SMBSpiderPlus:
                 self.stats["num_sensitive_files"] += 1
                 self.logger.highlight(f"Potentially sensitive filename: //{self.host}/{share_name}/{file_path} ({', '.join(name_matches)})")
 
-        if not self.download_flag and (not self.sensitive_check_enable or self.sensitive_check_staticonly):
+        if not self.download_flag and (not self.sensitive_check or not self.sensitive_read_content):
             return
 
         # Check file extension filter.
@@ -449,7 +449,7 @@ class SMBSpiderPlus:
             if file_extension.lower() in [ext.lstrip(".") for ext in self.exclude_exts]:
                 self.logger.info(f'The file "{file_path}" has an excluded extension.')
                 self.stats["num_files_filtered"] += 1
-                if self.sensitive_check_enable:
+                if self.sensitive_check:
                     self.results[share_name][file_path]["sensitive"]["content_status"] = "excluded"
                 return
 
@@ -457,14 +457,14 @@ class SMBSpiderPlus:
             self.check_sensitive_content(share_name, file_path, file_size)
             return
 
-        if self.sensitive_check_enable:
+        if self.sensitive_check:
             self.results[share_name][file_path]["sensitive"]["content_status"] = "not_downloaded"
 
         # Check file size limits.
         if file_size > self.max_file_size:
             self.logger.info(f"File {file_path} has size {human_size(file_size)} > max size {human_size(self.max_file_size)}.")
             self.stats["num_files_filtered"] += 1
-            if self.sensitive_check_enable and not self.sensitive_check_staticonly:
+            if self.sensitive_check and self.sensitive_read_content:
                 self.check_sensitive_content(share_name, file_path, file_size)
             return
 
@@ -473,7 +473,7 @@ class SMBSpiderPlus:
         if not remote_file:
             self.logger.fail(f'Cannot read remote file "{file_path}".')
             self.stats["num_get_fail"] += 1
-            if self.sensitive_check_enable:
+            if self.sensitive_check:
                 self.results[share_name][file_path]["sensitive"]["content_status"] = "read_error"
             return
 
@@ -485,7 +485,7 @@ class SMBSpiderPlus:
             if file_modified_time <= stat(download_path).st_mtime and getsize(download_path) == file_size:
                 self.logger.info(f'File already downloaded "{file_path}" => "{download_path}".')
                 self.stats["num_files_unmodified"] += 1
-                if self.sensitive_check_enable:
+                if self.sensitive_check:
                     self.check_sensitive_content(share_name, file_path, file_size, download_path)
                 return
             else:
@@ -510,13 +510,13 @@ class SMBSpiderPlus:
         # Increment stats counters
         if download_success:
             self.stats["num_get_success"] += 1
-            if self.sensitive_check_enable:
+            if self.sensitive_check:
                 self.check_sensitive_content(share_name, file_path, file_size, download_path)
             if needs_update_flag:
                 self.stats["num_files_updated"] += 1
         else:
             self.stats["num_get_fail"] += 1
-            if self.sensitive_check_enable:
+            if self.sensitive_check:
                 self.results[share_name][file_path]["sensitive"]["content_status"] = "download_failed"
 
     def save_file(self, remote_file, share_name, expected_size):
@@ -596,7 +596,7 @@ class SMBSpiderPlus:
         # File statistics.
         num_files = self.stats.get("num_files", 0)
         self.logger.display(f"Total files found:    {num_files}")
-        if self.sensitive_check_enable:
+        if self.sensitive_check:
             self.logger.display(f"Potentially sensitive files: {self.stats['num_sensitive_files']}")
             self.logger.display(f"Files with content indicators: {self.stats['num_sensitive_content_matches']}")
         num_files_filtered = self.stats.get("num_files_filtered", 0)
