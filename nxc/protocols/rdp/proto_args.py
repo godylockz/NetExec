@@ -3,7 +3,7 @@ from nxc.helpers.args import DisplayDefaultsNotNone
 
 def proto_args(parser, parents):
     rdp_parser = parser.add_parser("rdp", help="own stuff using RDP", parents=parents, formatter_class=DisplayDefaultsNotNone)
-    rdp_parser.add_argument("-H", "--hash", metavar="HASH", dest="hash", nargs="+", default=[], help="NTLM hash(es) or file(s) containing NTLM hashes")
+    rdp_parser.add_argument("-H", "--hash", metavar="HASH", dest="hash", nargs="+", default=[], help="NT, LM:NT, or :NT hash(es), or file(s) containing them")
     rdp_parser.add_argument("--port", type=int, default=3389, help="RDP port")
     rdp_parser.add_argument("--rdp-timeout", type=int, default=5, help="RDP timeout on socket connection")
     rdp_parser.add_argument("--nla-screenshot", action="store_true", help="Screenshot RDP login prompt if NLA is disabled")

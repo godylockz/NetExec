@@ -19,6 +19,7 @@ from nxc.loaders.moduleloader import ModuleLoader, ModuleOptionsError
 from nxc.logger import nxc_logger, NXCAdapter
 from nxc.context import Context
 from nxc.paths import NXC_PATH
+from nxc.helpers.misc import normalize_ntlm_hash
 
 sem = BoundedSemaphore(1)
 fail_lock = Lock()
@@ -403,26 +404,27 @@ class connection:
                 secret.append(password)
                 cred_type.append("plaintext")
 
-        # Parse NTLM-hashes
+        # Parse NTLM hashes.
         if hasattr(self.args, "hash") and self.args.hash:
             for ntlm_hash in self.args.hash:
                 if isfile(ntlm_hash):
                     with open(ntlm_hash) as ntlm_hash_file:
                         for i, line in enumerate(ntlm_hash_file):
-                            line = line.strip()
-                            if len(line) != 32 and len(line) != 65 and len(line) != 0:
-                                self.logger.fail(f"Invalid NTLM hash length on line {(i + 1)} (len {len(line)}): {line}")
+                            if not line.strip():
                                 continue
-                            else:
-                                secret.append(line)
-                                cred_type.append("hash")
+                            normalized_hash = normalize_ntlm_hash(line)
+                            if normalized_hash is None:
+                                self.logger.fail(f"Invalid NTLM hash on line {(i + 1)}: {line.strip()}")
+                                continue
+                            secret.append(normalized_hash)
+                            cred_type.append("hash")
                 else:
-                    if len(ntlm_hash) != 32 and len(ntlm_hash) != 65 and len(ntlm_hash) != 0:
-                        self.logger.fail(f"Invalid NTLM hash length {len(ntlm_hash)}, authentication not sent")
+                    normalized_hash = normalize_ntlm_hash(ntlm_hash)
+                    if normalized_hash is None:
+                        self.logger.fail(f"Invalid NTLM hash '{ntlm_hash}', authentication not sent (expected NT, LM:NT, or :NT with 32 hex characters per hash)")
                         exit(1)
-                    else:
-                        secret.append(ntlm_hash)
-                        cred_type.append("hash")
+                    secret.append(normalized_hash)
+                    cred_type.append("hash")
             self.logger.debug(secret)
 
         # Parse AES keys

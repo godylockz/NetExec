@@ -115,8 +115,17 @@ def sanitize_dns(hostname, logger=nxc_logger):
 
 
 def validate_ntlm(data):
-    allowed = re.compile(r"^[0-9a-f]{32}", re.IGNORECASE)
-    return bool(allowed.match(data))
+    return re.fullmatch(r"[0-9a-f]{32}", data, re.IGNORECASE) is not None
+
+
+def normalize_ntlm_hash(ntlm_hash):
+    """Accept NT, LM:NT, or :NT; preserve a supplied LM hash and reject invalid hex."""
+    parts = ntlm_hash.strip().split(":")
+    if len(parts) == 1 and validate_ntlm(parts[0]):
+        return parts[0]
+    if len(parts) == 2 and validate_ntlm(parts[1]) and (not parts[0] or validate_ntlm(parts[0])):
+        return ":".join(parts) if parts[0] else parts[1]
+    return None
 
 
 def called_from_cmd_args():
