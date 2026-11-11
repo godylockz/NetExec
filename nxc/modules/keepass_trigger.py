@@ -4,7 +4,8 @@ from time import sleep
 from csv import reader
 from base64 import b64encode
 from io import BytesIO, StringIO
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree as ET
 from nxc.helpers.misc import CATEGORY
 from nxc.helpers.powershell import get_ps_script
 from nxc.paths import TMP_PATH

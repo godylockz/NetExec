@@ -1,9 +1,11 @@
-import ntpath
-from Cryptodome.Cipher import AES
-from lxml import objectify
 from base64 import b64decode
-import hashlib
 from dataclasses import dataclass
+import hashlib
+import ntpath
+
+from Cryptodome.Cipher import AES
+from defusedxml import ElementTree as ET
+
 from nxc.helpers.misc import CATEGORY
 
 
@@ -93,7 +95,7 @@ class NXCModule:
                 self.handle_confCons_file(content)
 
     def handle_confCons_file(self, file_content):
-        main = objectify.fromstring(file_content)
+        main = ET.fromstring(file_content)
         encryption_attributes = MRemoteNgEncryptionAttributes(
             kdf_iterations=int(main.attrib["KdfIterations"]),
             block_cipher_mode=main.attrib["BlockCipherMode"],
@@ -116,7 +118,7 @@ class NXCModule:
 
     def parse_xml_nodes(self, main):
         nodes = []
-        for node in list(main.getchildren()):
+        for node in list(main):
             node_attributes = node.attrib
             if node_attributes["Type"] == "Connection":
                 nodes.append(node.attrib)

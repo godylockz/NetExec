@@ -2,7 +2,8 @@ from base64 import b64decode
 from configparser import ConfigParser, Error as ConfigError
 from io import BytesIO
 from pathlib import Path, PureWindowsPath
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree as ET
 
 from nxc.helpers.misc import CATEGORY, decode_text
 from nxc.helpers.path import sanitize_path_component

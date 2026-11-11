@@ -1,5 +1,7 @@
-import xml.etree.ElementTree as ET
 from io import BytesIO
+
+from defusedxml import ElementTree as ET
+
 from nxc.helpers.misc import CATEGORY
 
 

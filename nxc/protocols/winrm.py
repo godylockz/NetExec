@@ -5,8 +5,8 @@ import requests
 import urllib3
 import logging
 import ntpath
-import xml.etree.ElementTree as ET
 
+from defusedxml import ElementTree as ET
 from pypsrp.wsman import NAMESPACES
 from pypsrp.client import Client
 from pypsrp.powershell import PSDataStreams
