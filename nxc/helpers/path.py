@@ -98,7 +98,7 @@ def sanitize_path_component(name, max_bytes=255):
 def sanitize_filename(name: str) -> str:
     """Strip path traversal components from an SMB filename.
 
-    Follows the pattern from spider_plus.py — filters '..' and '.' from
+    Follows the pattern from spiderplus.py — filters '..' and '.' from
     PurePosixPath.parts to prevent directory traversal attacks from
     malicious SMB servers.
     """
