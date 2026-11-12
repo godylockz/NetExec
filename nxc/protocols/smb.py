@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+# -- coding: utf-8 --
+
+# Imports
 import ntpath
 import binascii
 import os
@@ -10,6 +14,7 @@ from nxc.helpers.path import sanitize_path_component
 from Cryptodome.Hash import MD4
 from textwrap import dedent
 from nxc.helpers.misc import sanitize_dns
+from nxc.helpers.smb import get_last_write_time
 
 from impacket.smbconnection import SMBConnection, SessionError
 from impacket.smb import SMB_DIALECT
@@ -1791,7 +1796,7 @@ class smb(connection):
         self.logger.highlight(f"{'-----':<9}{'---------':<15}{'----':<30}{'---------':<45}")
         for content in contents:
             full_path = ntpath.join(self.args.dir, content.get_longname())
-            self.logger.highlight(f"{'d' if content.is_directory() else 'f'}{'rw-' if content.is_readonly() > 0 else 'r--':<8}{content.get_filesize():<15}{ctime(float(content.get_mtime_epoch())):<30}{full_path:<45}")
+            self.logger.highlight(f"{'d' if content.is_directory() else 'f'}{'rw-' if content.is_readonly() > 0 else 'r--':<8}{content.get_filesize():<15}{ctime(get_last_write_time(content)):<30}{full_path:<45}")
 
     def interfaces(self):
         """

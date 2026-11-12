@@ -184,6 +184,40 @@ netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M slinky -
 # spider_plus takes a while to run, so it is commented out during normal testing
 # netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD KERBEROS -M spider_plus -o MAX_FILE_SIZE=100
 netexec smb -M spider_plus --options
+# Document/custom-search CLI checks use the explicitly authorized loopback fixture:
+# python tests/spider_plus_fixture.py --check
+# python tests/spider_plus_fixture.py --check --ocr
+# Every fixture invocation uses the following command prefix, with PORT assigned by the server:
+# python -m nxc.netexec smb 127.0.0.1 --port PORT --no-smbv1 --local-auth -u fixture -p 'SyntheticTest123!' -M spider_plus -o OUTPUT_FOLDER=FIXTURE_OUTPUT
+# The runner executes that command with each of these option sets:
+# (no additional options)
+# DOCUMENTS=True SHARES=documents
+# DOCUMENTS=True OCR=True 'NAME_REGEX=scan\.png$' 'CONTENT_REGEX=FIXTURE\s+MARKER'
+# SENSITIVE_CHECK=False 'CONTENT_REGEX=fixture\.marker' SHARES=documents 'NAME_REGEX=notes\.txt$'
+# CONTENT_WORDLIST=FIXTURE_WORDLIST 'NAME_REGEX=notes\.txt$' SENSITIVE_CHECK=False
+# MODIFIED_AFTER=2026-01-01 MODIFIED_BEFORE=2026-01-02 SENSITIVE_READ_CONTENT=True
+# MODIFIED_BEFORE=2026-01-01
+# DEPTH=0 SHARES=Documents
+# DEPTH=1
+# INCLUDE_DIRS=nested/reports EXCLUDE_DIRS=skip INCLUDE_EXTS=.txt CONTENT_REGEX=fixture
+# 'INCLUDE_EXTS=<none>' CONTENT_REGEX=fixture
+# SENSITIVE_READ_CONTENT=True 'CONTENT_REGEX=fixture\.marker'
+# DOCUMENTS=True SENSITIVE_MAX_FILE_SIZE=2048
+# SENSITIVE_READ_CONTENT=True SENSITIVE_MAX_FILE_SIZE=16
+# CONTENT_REGEX=fixture EXCLUDE_EXTS=txt
+# DOCUMENTS=True DOWNLOAD_FLAG=True 'NAME_REGEX=^report\.' (run twice with the same output directory)
+# Expected exit 1, run separately: NAME_REGEX=[; CONTENT_REGEX=[; DEPTH=-1; DEPTH=bad;
+# MODIFIED_AFTER=bad; MODIFIED_BEFORE=2026-02-30; DOCUMENTS=bad; OCR=True;
+# SENSITIVE_MAX_FILE_SIZE=0; MODIFIED_AFTER=2027-01-01 MODIFIED_BEFORE=2026-01-01;
+# CONTENT_WORDLIST=FIXTURE_MISSING_WORDLIST; CONTENT_WORDLIST=FIXTURE_EMPTY_WORDLIST
+# Timestamp display checks, using the same loopback authentication/port prefix:
+# python -m nxc.netexec smb 127.0.0.1 --port PORT --no-smbv1 --local-auth -u fixture -p 'SyntheticTest123!' --share DOCUMENTS --dir
+# python -m nxc.netexec smb 127.0.0.1 --port PORT --no-smbv1 --local-auth -u fixture -p 'SyntheticTest123!' --spider DOCUMENTS --pattern old.txt --depth 0
+# Entry-point and missing-extra checks with isolated NXC_PATH:
+# python -m nxc.netexec --help
+# python -m nxc.netexec smb -M spider_plus --options
+# python -m nxc.netexec smb tests/data/empty_targets.txt -M spider_plus
+# python -m nxc.netexec smb tests/data/empty_targets.txt -M spider_plus -o DOCUMENTS=True (expected exit 1 without the spider extra)
 # Module initialization with an empty target file (no network operations)
 netexec smb tests/data/empty_targets.txt -M spider_plus
 netexec smb tests/data/empty_targets.txt -M spider_plus -o SENSITIVE_CHECK=False

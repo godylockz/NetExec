@@ -1,5 +1,10 @@
+#!/usr/bin/env python3
+# -- coding: utf-8 --
+
+# Imports
 import io
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -55,7 +60,7 @@ class TestSpiderPlus:
     def file_info(self, size, name="web.config"):
         return SimpleNamespace(
             get_filesize=lambda: size, get_longname=lambda: name, is_directory=lambda: False,
-            get_ctime_epoch=lambda: 0, get_mtime_epoch=lambda: 0, get_atime_epoch=lambda: 0,
+            get_ctime_epoch=lambda: 0, get_wtime=lambda: 116444736000000000, get_atime_epoch=lambda: 0,
         )
 
     def finding(self, spider, path="web.config"):
@@ -401,5 +406,41 @@ class TestSpiderPlus:
         context = SimpleNamespace(log=self.logger)
         module.options(context, {"OUTPUT_FOLDER": self.output_folder, "SENSITIVE_READ_CONTENT": "True", "SENSITIVE_MAX_FILE_SIZE": "2048"})
         module.on_login(context, self.smb)
-        assert spider_class.call_args.kwargs == {"sensitive_check": True, "sensitive_read_content": True, "sensitive_max_file_size": 2048}
+        for key, value in {"sensitive_check": True, "sensitive_read_content": True, "sensitive_max_file_size": 2048}.items():
+            assert spider_class.call_args.kwargs[key] == value
         spider_class.return_value.spider_shares.assert_called_once()
+
+    @patch("nxc.protocols.smb.spiderplus.RemoteFile")
+    def test_custom_search_read_errors_update_both_findings(self, remote_file):
+        remote_file.return_value = RemoteFileFixture(b"", read_error=True)
+        spider = self.make_spider(content_patterns=[re.compile(r"test")])
+        spider.parse_file("Documents", "notes.txt", self.file_info(10))
+        for key in ("sensitive", "search"):
+            assert spider.results["Documents"]["notes.txt"][key]["content_status"] == "read_error"
+            assert spider.results["Documents"]["notes.txt"][key]["content_matches"] == []
+        assert remote_file.return_value.closed
+
+    @patch("nxc.protocols.smb.spiderplus.RemoteFile")
+    def test_custom_search_does_not_accept_truncated_content(self, remote_file):
+        remote_file.return_value = RemoteFileFixture(b"test")
+        spider = self.make_spider(sensitive_check=False, content_patterns=[re.compile(r"test")])
+        spider.parse_file("Documents", "notes.txt", self.file_info(5))
+        assert spider.results["Documents"]["notes.txt"]["search"]["content_status"] == "size_changed"
+        assert spider.results["Documents"]["notes.txt"]["search"]["content_matches"] == []
+
+    @patch("nxc.protocols.smb.spiderplus.RemoteFile")
+    def test_remote_content_cannot_exceed_limit_with_custom_search(self, remote_file):
+        remote = RemoteFileFixture(b"test" * 10)
+        remote_file.return_value = remote
+        spider = self.make_spider(content_patterns=[re.compile(r"test")], sensitive_max_file_size=16)
+        spider.parse_file("Documents", "notes.txt", self.file_info(10))
+        assert spider.results["Documents"]["notes.txt"]["search"]["content_status"] == "skipped_size"
+        assert spider.results["Documents"]["notes.txt"]["search"]["content_matches"] == []
+        assert sum(remote.requests) == 17
+        assert remote.closed
+
+    @patch("nxc.protocols.smb.spiderplus.extract_bytes_sync", None)
+    def test_document_options_require_optional_dependency(self):
+        with pytest.raises(SystemExit):
+            NXCModule().options(SimpleNamespace(log=self.logger), {"DOCUMENTS": "True"})
+        self.logger.fail.assert_called_with("DOCUMENTS=True requires the spider extra: install netexec[spider]")

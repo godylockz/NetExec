@@ -51,6 +51,35 @@ pipx install git+https://github.com/Pennyw0rth/NetExec
 # Development
 Development guidelines and recommendations in development
 
+## SMB share searches
+
+`spider_plus` inventories readable shares and flags sensitive filenames. Install
+the optional `spider` extra to extract document content locally with Kreuzberg
+(`uv sync --extra spider`, or install `'.[spider]'` from this checkout with your
+package manager). Enable extraction with `DOCUMENTS=True`; add `OCR=True` for
+scanned PDFs and images using a local Tesseract installation and language data.
+No LLM or cloud service is used.
+
+```sh
+netexec smb -M spider_plus --options
+netexec smb TARGET_HOST -u LOGIN_USERNAME -p LOGIN_PASSWORD -M spider_plus -o DOCUMENTS=True 'CONTENT_REGEX=password|client_secret' MODIFIED_AFTER=2026-01-01 DEPTH=3
+```
+
+Custom searches accept a filename regex, content regex, or a UTF-8 wordlist of
+literal terms. Share, extension, directory, date, and depth filters control the
+search. Dates use UTC midnight; the lower bound is inclusive and the upper bound
+is exclusive. See the module's `--options` output for the option definitions.
+Command-line credentials may be visible in process listings and shell history.
+
+The JSON inventory retains built-in indicators under `sensitive` and custom
+pattern counts under `search`. Visited files excluded by selection filters have
+a `filter_status`; excluded shares/directories are not inventoried. Content
+inspection caps both source bytes and extracted UTF-8 bytes with
+`SENSITIVE_MAX_FILE_SIZE`. Extraction failures, documents with no extracted text,
+and size/type skips are recorded separately from completed checks. Downloads
+still save every selected file when `DOWNLOAD_FLAG=True`, including files with
+no content matches; cached downloads are inspected without another SMB read.
+
 # Acknowledgments
 All the hard work and development over the years from everyone in the CrackMapExec project
 

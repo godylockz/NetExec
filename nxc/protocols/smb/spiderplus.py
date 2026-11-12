@@ -1,5 +1,10 @@
+#!/usr/bin/env python3
+# -- coding: utf-8 --
+
+# Imports
 import json
 import errno
+import logging
 from os.path import join, exists, splitext, getsize
 from os import makedirs, remove, stat
 from pathlib import Path, PurePosixPath
@@ -8,10 +13,17 @@ import re
 from fnmatch import fnmatchcase
 from contextlib import suppress
 from nxc.helpers.path import sanitize_path_component
+from nxc.helpers.smb import get_last_write_time
 from nxc.protocols.smb.remotefile import RemoteFile
 from impacket.smb3structs import FILE_READ_DATA
 from impacket.smbconnection import SessionError
 from impacket.nmb import NetBIOSTimeout
+
+try:
+    from kreuzberg import ExtractionConfig, OcrConfig, extract_bytes_sync
+except ImportError as e:
+    extract_bytes_sync = None
+    logging.getLogger(__name__).debug("Document extraction unavailable: %s", e)
 
 
 CHUNK_SIZE = 4096
@@ -56,6 +68,19 @@ def get_list_from_option(opt):
 
 
 class SMBSpiderPlus:
+    document_types = {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".odt": "application/vnd.oasis.opendocument.text",
+        ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+        ".rtf": "application/rtf",
+        ".doc": "application/msword",
+        ".xls": "application/vnd.ms-excel",
+        ".ppt": "application/vnd.ms-powerpoint",
+    }
+    image_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".tif": "image/tiff", ".tiff": "image/tiff", ".bmp": "image/bmp", ".webp": "image/webp"}
     sensitive_name_rules = {
         "credential configuration": (
             "web.config", "applicationhost.config", "wp-config.php", "config.php", "settings.php",
@@ -81,11 +106,11 @@ class SMBSpiderPlus:
     text_extensions = {
         ".config", ".conf", ".cfg", ".ini", ".xml", ".json", ".yml", ".yaml", ".env", ".properties", ".toml",
         ".txt", ".log", ".ps1", ".bat", ".cmd", ".sh", ".py", ".php", ".cs", ".vb", ".sql", ".tf", ".tfvars",
-        ".tfstate", ".rdp", ".rdg", ".pem", ".key", ".ppk", ".ovpn",
+        ".tfstate", ".rdp", ".rdg", ".pem", ".key", ".ppk", ".ovpn", ".csv", ".tsv", ".md", ".rst", ".html", ".htm",
     }
     binary_extensions = {
         ".kdb", ".kdbx", ".psafe3", ".pfx", ".p12", ".jks", ".keystore", ".db", ".sqlite", ".dit", ".dat", ".sso",
-        ".zip", ".7z", ".rar", ".gz", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf", ".exe", ".dll",
+        ".zip", ".7z", ".rar", ".gz", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf", ".odp", ".exe", ".dll",
     }
     credential_key = r"(?:password|passwd|pwd|db[_-]?password|api[_-]?key|client[_-]?secret|access[_-]?token|auth[_-]?token|aws[_-]?secret[_-]?access[_-]?key|aws[_-]?access[_-]?key[_-]?id|secret|token)"
     assignment_pattern = re.compile(
@@ -109,6 +134,17 @@ class SMBSpiderPlus:
         sensitive_check=True,
         sensitive_read_content=False,
         sensitive_max_file_size=1024 * 1024,
+        documents=False,
+        ocr=False,
+        name_regex=None,
+        content_patterns=(),
+        shares=(),
+        include_exts=(),
+        include_dirs=(),
+        exclude_dirs=(),
+        depth=None,
+        modified_after=None,
+        modified_before=None,
     ):
         self.smb = smb
         self.host = self.smb.conn.getRemoteHost()
@@ -143,6 +179,18 @@ class SMBSpiderPlus:
         self.sensitive_check = sensitive_check
         self.sensitive_read_content = sensitive_read_content
         self.sensitive_max_file_size = sensitive_max_file_size
+        self.documents = documents
+        self.ocr = ocr
+        self.name_regex = name_regex
+        self.content_patterns = content_patterns
+        self.shares = shares
+        self.include_exts = include_exts
+        self.include_dirs = include_dirs
+        self.exclude_dirs = exclude_dirs
+        self.depth = depth
+        self.modified_after = modified_after
+        self.modified_before = modified_before
+        self.read_content = bool(content_patterns) or (sensitive_check and (sensitive_read_content or documents))
 
         # Make sure the output_folder exists
         make_dirs(self.output_folder)
@@ -179,7 +227,11 @@ class SMBSpiderPlus:
         return not re.fullmatch(r"\*+|[xX]{3,}", value)
 
     @staticmethod
-    def sensitive_content_matches(data):
+    def document_parser_available():
+        return extract_bytes_sync is not None
+
+    @staticmethod
+    def decode_content(data):
         if data.startswith((b"\xff\xfe", b"\xfe\xff")):
             text = data.decode("utf-16", errors="replace")
         elif b"\x00" in data:
@@ -188,6 +240,15 @@ class SMBSpiderPlus:
             text = data.decode("utf-8-sig", errors="replace")
         if any(ord(char) < 32 and char not in "\r\n\t" for char in text):
             return None
+        return text
+
+    @staticmethod
+    def sensitive_content_matches(data):
+        text = SMBSpiderPlus.decode_content(data)
+        return SMBSpiderPlus.sensitive_text_matches(text) if text is not None else None
+
+    @staticmethod
+    def sensitive_text_matches(text):
         matches = []
         if SMBSpiderPlus.private_key_pattern.search(text):
             matches.append("private key content")
@@ -205,15 +266,22 @@ class SMBSpiderPlus:
                 break
         return matches
 
+    @staticmethod
+    def content_status(metadata, status, **details):
+        for key in ("sensitive", "search"):
+            if key in metadata:
+                metadata[key].update(content_status=status, **details)
+
     def check_sensitive_content(self, share_name, file_path, file_size, download_path=None):
-        finding = self.results[share_name][file_path]["sensitive"]
-        finding["content_source"] = "download" if download_path else "remote"
+        metadata = self.results[share_name][file_path]
+        self.content_status(metadata, "not_requested", content_source="download" if download_path else "remote")
         if file_size > self.sensitive_max_file_size:
-            finding["content_status"] = "skipped_size"
+            self.content_status(metadata, "skipped_size")
             return
         extension = splitext(file_path)[1].lower()
-        if extension in self.binary_extensions or (not download_path and not finding["name_matches"] and extension not in self.text_extensions):
-            finding["content_status"] = "skipped_type"
+        mime_type = self.document_types.get(extension) or (self.image_types.get(extension) if self.ocr else None)
+        if not (self.documents and mime_type) and (extension in self.binary_extensions or extension in self.document_types or extension in self.image_types or (not download_path and not metadata.get("sensitive", {}).get("name_matches") and extension not in self.text_extensions and not self.content_patterns)):
+            self.content_status(metadata, "skipped_type")
             return
         remote_file = None
         try:
@@ -229,26 +297,48 @@ class SMBSpiderPlus:
                     if not chunk:
                         break
                     data.extend(chunk)
-            finding["bytes_checked"] = len(data)
+            self.content_status(metadata, "not_requested", bytes_checked=len(data))
             if len(data) > self.sensitive_max_file_size:
-                finding["content_status"] = "skipped_size"
+                self.content_status(metadata, "skipped_size")
                 return
             if len(data) != file_size:
-                finding["content_status"] = "size_changed"
+                self.content_status(metadata, "size_changed")
                 return
-            matches = self.sensitive_content_matches(data)
-            if matches is None:
-                finding["content_status"] = "skipped_binary"
+            if self.documents and mime_type:
+                try:
+                    text = extract_bytes_sync(bytes(data), mime_type, config=ExtractionConfig(use_cache=False, disable_ocr=not self.ocr, ocr=OcrConfig(backend="tesseract") if self.ocr else None, extraction_timeout_secs=30)).content
+                except Exception as e:
+                    self.content_status(metadata, "extraction_error")
+                    self.logger.fail(f"Cannot extract document //{self.host}/{share_name}/{file_path}: {e}")
+                    return
+                if len(text.encode("utf-8")) > self.sensitive_max_file_size:
+                    self.content_status(metadata, "skipped_extracted_size")
+                    return
+                if not text.strip():
+                    self.content_status(metadata, "no_text")
+                    return
+            else:
+                text = self.decode_content(data)
+            if text is None:
+                self.content_status(metadata, "skipped_binary")
                 return
-            finding["content_status"] = "checked"
-            finding["content_matches"] = matches
+            self.content_status(metadata, "checked")
+            matches = self.sensitive_text_matches(text) if self.sensitive_check else []
+            if self.sensitive_check:
+                metadata["sensitive"]["content_matches"] = matches
             if matches:
                 self.stats["num_sensitive_content_matches"] += 1
-                if not finding["name_matches"]:
+                if not metadata["sensitive"]["name_matches"]:
                     self.stats["num_sensitive_files"] += 1
                 self.logger.highlight(f"Sensitive content indicator: //{self.host}/{share_name}/{file_path} ({', '.join(matches)})")
+            if self.content_patterns:
+                for pattern in self.content_patterns:
+                    count = sum(1 for match in pattern.finditer(text))
+                    if count:
+                        metadata["search"]["content_matches"].append({"pattern": pattern.pattern, "count": count})
+                        self.logger.highlight(f"Content search match: //{self.host}/{share_name}/{file_path} ({pattern.pattern}: {count})")
         except Exception as e:
-            finding["content_status"] = "read_error"
+            self.content_status(metadata, "read_error")
             self.logger.fail(f"Cannot check sensitive content in //{self.host}/{share_name}/{file_path}: {e}")
         finally:
             if remote_file:
@@ -353,7 +443,7 @@ class SMBSpiderPlus:
                     continue
 
                 # `exclude_filter` is applied to the shares name
-                if share_name.lower() in self.exclude_filter:
+                if share_name.lower() in self.exclude_filter or (self.shares and share_name.lower() not in self.shares):
                     self.logger.info(f'Share "{share_name}" has been excluded.')
                     self.stats["num_shares_filtered"] += 1
                     continue
@@ -380,7 +470,7 @@ class SMBSpiderPlus:
 
         return self.results
 
-    def spider_folder(self, share_name, folder):
+    def spider_folder(self, share_name, folder, depth=0):
         """Traverses through the contents of the specified share and folder.
 
         It checks each entry (file or folder) against various filters, performs file metadata recording, and downloads eligible files if the download flag is set.
@@ -407,8 +497,11 @@ class SMBSpiderPlus:
                 continue
 
             if result_type == "folder":
+                if (self.depth is not None and depth >= self.depth) or any(part.replace("\\", "/") in next_fullpath.lower() for part in self.exclude_dirs):
+                    self.stats["num_folders_filtered"] += 1
+                    continue
                 self.logger.info(f'Current folder in share "{share_name}": "{next_fullpath}"')
-                self.spider_folder(share_name, next_fullpath + "/")
+                self.spider_folder(share_name, next_fullpath + "/", depth + 1)
             else:
                 self.logger.info(f'Current file in share "{share_name}": "{next_fullpath}"')
                 self.parse_file(share_name, next_fullpath, result)
@@ -418,7 +511,7 @@ class SMBSpiderPlus:
         # Record the file metadata
         file_size = file_info.get_filesize()
         file_creation_time = file_info.get_ctime_epoch()
-        file_modified_time = file_info.get_mtime_epoch()
+        file_modified_time = get_last_write_time(file_info)
         file_access_time = file_info.get_atime_epoch()
         self.results[share_name][file_path] = {
             "size": human_size(file_size),
@@ -427,6 +520,29 @@ class SMBSpiderPlus:
             "atime_epoch": human_time(file_access_time),
         }
         self.stats["file_sizes"].append(file_size)
+
+        metadata = self.results[share_name][file_path]
+        if self.name_regex or self.content_patterns:
+            metadata["search"] = {
+                "name_match": bool(self.name_regex and self.name_regex.search(file_path.rsplit("/", 1)[-1])),
+                "content_matches": [], "content_status": "not_requested", "bytes_checked": 0,
+            }
+        extension = splitext(file_path)[1].lower().lstrip(".") or "<none>"
+        folder = file_path.rpartition("/")[0].lower()
+        for reason, excluded in (
+            ("filename", self.name_regex and not metadata["search"]["name_match"]),
+            ("extension", self.include_exts and extension not in self.include_exts),
+            ("directory", self.include_dirs and not any(part.replace("\\", "/") in folder for part in self.include_dirs)),
+            ("modified_after", self.modified_after is not None and file_modified_time < self.modified_after),
+            ("modified_before", self.modified_before is not None and file_modified_time >= self.modified_before),
+        ):
+            if excluded:
+                metadata["filter_status"] = reason
+                self.content_status(metadata, "excluded")
+                self.stats["num_files_filtered"] += 1
+                return
+        if self.name_regex:
+            self.logger.highlight(f"Filename search match: //{self.host}/{share_name}/{file_path}")
 
         if self.sensitive_check:
             name_matches = self.sensitive_name_matches(file_path)
@@ -440,7 +556,7 @@ class SMBSpiderPlus:
                 self.stats["num_sensitive_files"] += 1
                 self.logger.highlight(f"Potentially sensitive filename: //{self.host}/{share_name}/{file_path} ({', '.join(name_matches)})")
 
-        if not self.download_flag and (not self.sensitive_check or not self.sensitive_read_content):
+        if not self.download_flag and not self.read_content:
             return
 
         # Check file extension filter.
@@ -451,22 +567,20 @@ class SMBSpiderPlus:
             if file_extension.lower() in [ext.lstrip(".") for ext in self.exclude_exts]:
                 self.logger.info(f'The file "{file_path}" has an excluded extension.')
                 self.stats["num_files_filtered"] += 1
-                if self.sensitive_check:
-                    self.results[share_name][file_path]["sensitive"]["content_status"] = "excluded"
+                self.content_status(metadata, "excluded")
                 return
 
         if not self.download_flag:
             self.check_sensitive_content(share_name, file_path, file_size)
             return
 
-        if self.sensitive_check:
-            self.results[share_name][file_path]["sensitive"]["content_status"] = "not_downloaded"
+        self.content_status(metadata, "not_downloaded")
 
         # Check file size limits.
         if file_size > self.max_file_size:
             self.logger.info(f"File {file_path} has size {human_size(file_size)} > max size {human_size(self.max_file_size)}.")
             self.stats["num_files_filtered"] += 1
-            if self.sensitive_check and self.sensitive_read_content:
+            if self.read_content:
                 self.check_sensitive_content(share_name, file_path, file_size)
             return
 
@@ -475,8 +589,7 @@ class SMBSpiderPlus:
         if not remote_file:
             self.logger.fail(f'Cannot read remote file "{file_path}".')
             self.stats["num_get_fail"] += 1
-            if self.sensitive_check:
-                self.results[share_name][file_path]["sensitive"]["content_status"] = "read_error"
+            self.content_status(metadata, "read_error")
             return
 
         # Check if the file is already downloaded and up-to-date.
@@ -485,8 +598,7 @@ class SMBSpiderPlus:
         except ValueError as e:
             self.logger.fail(str(e))
             self.stats["num_get_fail"] += 1
-            if self.sensitive_check:
-                self.results[share_name][file_path]["sensitive"]["content_status"] = "download_failed"
+            self.content_status(metadata, "download_failed")
             return
         download_path = join(file_dir, file_name)
         needs_update_flag = False
@@ -494,7 +606,7 @@ class SMBSpiderPlus:
             if file_modified_time <= stat(download_path).st_mtime and getsize(download_path) == file_size:
                 self.logger.info(f'File already downloaded "{file_path}" => "{download_path}".')
                 self.stats["num_files_unmodified"] += 1
-                if self.sensitive_check:
+                if self.sensitive_check or self.content_patterns:
                     self.check_sensitive_content(share_name, file_path, file_size, download_path)
                 return
             else:
@@ -519,14 +631,13 @@ class SMBSpiderPlus:
         # Increment stats counters
         if download_success:
             self.stats["num_get_success"] += 1
-            if self.sensitive_check:
+            if self.sensitive_check or self.content_patterns:
                 self.check_sensitive_content(share_name, file_path, file_size, download_path)
             if needs_update_flag:
                 self.stats["num_files_updated"] += 1
         else:
             self.stats["num_get_fail"] += 1
-            if self.sensitive_check:
-                self.results[share_name][file_path]["sensitive"]["content_status"] = "download_failed"
+            self.content_status(metadata, "download_failed")
 
     def save_file(self, remote_file, share_name, download_path, expected_size):
         """Save a complete download and remove incomplete or oversized output."""

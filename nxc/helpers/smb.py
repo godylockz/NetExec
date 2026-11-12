@@ -1,4 +1,13 @@
+#!/usr/bin/env python3
+# -- coding: utf-8 --
+
+# Imports
 from impacket.smbconnection import SMBConnection
+
+
+def get_last_write_time(file_info):
+    """Read SMB LastWriteTime without the epoch helpers' low-bit truncation."""
+    return (file_info.get_wtime() - 116444736000000000) / 10_000_000
 
 
 def get_smb_connection(context, connection, timeout=3):

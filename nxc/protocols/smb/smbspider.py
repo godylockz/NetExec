@@ -1,4 +1,9 @@
+#!/usr/bin/env python3
+# -- coding: utf-8 --
+
+# Imports
 from time import strftime, localtime
+from nxc.helpers.smb import get_last_write_time
 from nxc.protocols.smb.remotefile import RemoteFile
 from impacket.smb3structs import FILE_READ_DATA
 from impacket.smbconnection import SessionError
@@ -223,4 +228,4 @@ class SMBSpider:
 
     def get_lastm_time(self, result_obj):
         with contextlib.suppress(Exception):
-            return strftime("%Y-%m-%d %H:%M", localtime(result_obj.get_mtime_epoch()))
+            return strftime("%Y-%m-%d %H:%M", localtime(get_last_write_time(result_obj)))
