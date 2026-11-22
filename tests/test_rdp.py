@@ -32,7 +32,7 @@ def test_execute_reports_disconnected_session(rdp_class):
         conn=SimpleNamespace(disconnected_evt=SimpleNamespace(is_set=lambda: True)),
         logger=Logger(),
         runner=Runner(),
-        username="t.ellis",
+        username="alice",
     )
 
     assert rdp_class.execute(protocol) is None

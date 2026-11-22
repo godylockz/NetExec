@@ -5,8 +5,8 @@ import requests
 import urllib3
 import logging
 import ntpath
+from xml.etree.ElementTree import Element, SubElement
 
-from defusedxml import ElementTree as ET
 from pypsrp.wsman import NAMESPACES
 from pypsrp.client import Client
 from pypsrp.powershell import PSDataStreams
@@ -60,14 +60,21 @@ class winrm(connection):
         )
 
     def enum_host_info(self):
+        raw_challenge = self.challenge_header.partition(" ")[2].replace(",", "")
         try:
-            ntlm_info = parse_challenge(base64.b64decode(self.challenge_header.split(" ")[1].replace(",", "")))
+            ntlm_info = parse_challenge(base64.b64decode(raw_challenge))
         except Exception as e:
             self.logger.debug(f"Error parsing NTLM challenge: {e!s}")
-            self.logger.debug(f"Raw challenge: {self.challenge_header.split(' ')[1].replace(',', '')[:20]}...")
-            self.logger.error("Invalid NTLM challenge received from server. This may indicate NTLM is not supported and nxc winrm only support NTLM currently")
+            self.logger.debug(f"Raw challenge: {raw_challenge[:20]}...")
+            self.logger.info("The WinRM endpoint did not provide a usable NTLM challenge")
             self.no_ntlm = True
-            return False
+            if not self.kerberos:
+                return False
+            self.hostname = sanitize_dns(self.hostname, self.logger)
+            target_domain = self.args.domain or self.hostname.partition(".")[2]
+            self.targetDomain = self.domain = sanitize_dns(target_domain, self.logger) if target_domain else ""
+            self.logger.extra["hostname"] = self.hostname
+            return None
 
         dns_hostname = ntlm_info["dns_hostname"] or ""
         hostname = ntlm_info["hostname"] or dns_hostname.split(".", 1)[0] or self.host
@@ -150,9 +157,9 @@ class winrm(connection):
         wsen = NAMESPACES["wsen"]
         wsmn = NAMESPACES["wsman"]
 
-        enum_msg = ET.Element(f"{{{wsen}}}Enumerate")
-        ET.SubElement(enum_msg, f"{{{wsmn}}}OptimizeEnumeration")
-        ET.SubElement(enum_msg, f"{{{wsmn}}}MaxElements").text = "32000"
+        enum_msg = Element(f"{{{wsen}}}Enumerate")
+        SubElement(enum_msg, f"{{{wsmn}}}OptimizeEnumeration")
+        SubElement(enum_msg, f"{{{wsmn}}}MaxElements").text = "32000"
 
         wsman.enumerate("http://schemas.microsoft.com/wbem/wsman/1/windows/shell", enum_msg)
         self.admin_privs = True
@@ -251,6 +258,48 @@ class winrm(connection):
                 self.logger.fail(f"{self.domain}\\{self.username}:{process_secret(self.nthash)}")
             else:
                 self.logger.fail(f"{self.domain}\\{self.username}:{process_secret(self.nthash)} {e!s}")
+            return False
+
+    def kerberos_login(self, domain, username, password="", ntlm_hash="", aesKey="", kdcHost="", useCache=False):
+        self.admin_privs = False
+        self.domain = domain or self.domain or self.targetDomain
+        self.username = username
+        self.password = password
+
+        if ntlm_hash or aesKey:
+            self.logger.fail("WinRM Kerberos supports a password or credential cache, not NTLM hashes or AES keys")
+            return False
+
+        try:
+            self.conn = Client(
+                self.host,
+                port=self.port,
+                auth="kerberos",
+                username=None if useCache else f"{self.username}@{self.domain}",
+                password=None if useCache else self.password,
+                ssl=self.ssl,
+                cert_validation=False,
+            )
+
+            self.check_if_admin()
+            credential = " from ccache" if useCache else f":{process_secret(self.password)}"
+            self.logger.success(f"{self.domain}\\{self.username}{credential} {self.mark_pwned()}")
+
+            if not useCache:
+                self.db.add_credential("plaintext", self.domain, self.username, self.password)
+                user_id = self.db.get_credential("plaintext", self.domain, self.username, self.password)
+                host_id = self.db.get_hosts(self.host)[0].id
+                self.db.add_loggedin_relation(user_id, host_id)
+                self.db.add_admin_user("plaintext", self.domain, self.username, self.password, self.host, user_id=user_id)
+
+            if self.admin_privs:
+                add_user_bh(f"{self.hostname}$", self.domain, self.logger, self.config)
+            if self.username:
+                add_user_bh(self.username, self.domain, self.logger, self.config)
+            return True
+        except Exception as e:
+            credential = " from ccache" if useCache else f":{process_secret(self.password)}"
+            self.logger.fail(f"{self.domain}\\{self.username}{credential} {e!s}")
             return False
 
     def execute(self, payload=None, get_output=False, shell_type="cmd"):
