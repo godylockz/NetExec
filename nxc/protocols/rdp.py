@@ -695,7 +695,8 @@ Add-Type -AssemblyName System.Windows.Forms
         if not self.username:  # every login method sets it, so empty means no credentials were given and there is no desktop to capture
             self.logger.fail("-x/-X need credentials")
             return None
-        if self.conn.disconnected_evt.is_set():  # valid credentials without the RDP right open no session: skip silently, like smb -x without admin rights
+        if self.conn.disconnected_evt.is_set():
+            self.logger.fail("RDP session disconnected before command execution; -x/-X was not run")
             return None
         self.logger.success(f"Executing command: {payload}")
 
