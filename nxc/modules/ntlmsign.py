@@ -40,13 +40,13 @@ class NXCModule:
             return
 
         if connection.args.protocol == "smb":
-            signed_ok, signed_msg = self._bind_smb(True)
-            unsigned_ok, unsigned_msg = self._bind_smb(False)
+            signed_ok, signed_msg = self.bind_smb(True)
+            unsigned_ok, unsigned_msg = self.bind_smb(False)
             label = "login"
 
         elif connection.args.protocol == "ldap":
-            signed_ok, signed_msg = self._bind_ldap(True)
-            unsigned_ok, unsigned_msg = self._bind_ldap(False)
+            signed_ok, signed_msg = self.bind_ldap(True)
+            unsigned_ok, unsigned_msg = self.bind_ldap(False)
             label = "bind"
 
         if signed_ok and not unsigned_ok:
@@ -57,7 +57,7 @@ class NXCModule:
             state = "inconclusive" if not unsigned_ok else "UNEXPECTED (unsigned ok, signed failed)"
             self.context.log.fail(f"{connection.host} - {state}: signed={signed_msg!r} unsigned={unsigned_msg!r}")
 
-    def _bind_smb(self, sign):
+    def bind_smb(self, sign):
         """One full NTLM authentication. Returns (success, status_string)."""
         label = "signed" if sign else "unsigned"
         conn = None
@@ -145,7 +145,7 @@ class NXCModule:
                 with contextlib.suppress(Exception):
                     conn.close()
 
-    def _bind_ldap(self, sign):
+    def bind_ldap(self, sign):
         """One full sicily bind. Returns (success, diagnostic_message)."""
         label = "signed" if sign else "unsigned"
         try:
