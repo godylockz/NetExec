@@ -23,7 +23,7 @@ class Logger:
 
 class Runner:
     def run(self, coroutine):
-        raise AssertionError("execute_shell must not run after the RDP session disconnects")
+        raise AssertionError("runner must not be used after the RDP session disconnects")
 
 
 def test_execute_reports_disconnected_session(rdp_class):
@@ -38,4 +38,18 @@ def test_execute_reports_disconnected_session(rdp_class):
     assert rdp_class.execute(protocol) is None
     assert protocol.logger.messages == [
         "RDP session disconnected before command execution; -x/-X was not run"
+    ]
+
+
+def test_screenshot_reports_disconnected_session(rdp_class):
+    protocol = SimpleNamespace(
+        conn=SimpleNamespace(disconnected_evt=SimpleNamespace(is_set=lambda: True)),
+        logger=Logger(),
+        runner=Runner(),
+        username="alice",
+    )
+
+    assert rdp_class.screenshot(protocol) is None
+    assert protocol.logger.messages == [
+        "RDP session disconnected before screenshot capture; --screenshot was not run"
     ]

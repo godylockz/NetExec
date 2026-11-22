@@ -732,7 +732,9 @@ Add-Type -AssemblyName System.Windows.Forms
     def screenshot(self):
         if not self.username:  # every login method sets it, so empty means no credentials were given and there is no desktop to capture
             self.logger.fail("--screenshot needs credentials, use --nla-screenshot to capture the login screen")
-        elif not self.conn.disconnected_evt.is_set():  # no session to capture: same silent skip as execute()
+        elif self.conn.disconnected_evt.is_set():
+            self.logger.fail("RDP session disconnected before screenshot capture; --screenshot was not run")
+        else:
             self.runner.run(self.screen())
 
     async def nla_screen(self):
